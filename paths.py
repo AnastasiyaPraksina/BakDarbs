@@ -1,0 +1,1 @@
+raw_data = "data/raw/blood_cell_anomaly_detection.csv"
