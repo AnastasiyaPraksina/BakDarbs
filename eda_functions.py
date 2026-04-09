@@ -111,6 +111,7 @@ def save_dataset_statistics(df: pd.DataFrame, output_file: str = "dataset_statis
 
 
 def get_numeric_features(df: pd.DataFrame, exclude_columns: Optional[List[str]] = None) -> List[str]:
+    """Atgriež tikai skaitliskās kolonnas."""
     if exclude_columns is None:
         exclude_columns = []
 
@@ -236,8 +237,18 @@ def plot_histograms_by_label(df: pd.DataFrame, features: List[str], label_col: s
 # 07. CORRELATION
 # =========================
 
-def plot_correlation_heatmap(df: pd.DataFrame, features: List[str]) -> pd.DataFrame:
-    corr_matrix = df[features].corr()
+def plot_correlation_heatmap(df: pd.DataFrame, numeric_features: List[str]) -> pd.DataFrame:
+    """
+    Korelācijas matrica tiek veidota TIKAI no skaitliskajām kolonnām.
+    """
+    if len(numeric_features) < 2:
+        return pd.DataFrame()
+
+    numeric_df = df[numeric_features].copy()
+    corr_matrix = numeric_df.corr(numeric_only=True)
+
+    if corr_matrix.empty:
+        return pd.DataFrame()
 
     plt.figure(figsize=(12, 10))
     sns.heatmap(corr_matrix, annot=False, cmap="coolwarm", square=True)
@@ -261,8 +272,14 @@ def plot_correlation_heatmap(df: pd.DataFrame, features: List[str]) -> pd.DataFr
 def get_correlated_feature_pairs(
     corr_matrix: pd.DataFrame,
     threshold: float = 0.7,
-    max_pairs: int = 15
+    max_pairs: int = 20
 ) -> List[Tuple[str, str, float]]:
+    """
+    Atlasām pārus scatter diagrammām tikai no skaitlisko atribūtu korelācijas matricas.
+    """
+    if corr_matrix.empty:
+        return []
+
     pairs = []
     columns = corr_matrix.columns.tolist()
 
@@ -289,6 +306,9 @@ def plot_scatterplots(
     label_col: str = "anomaly_label"
 ) -> None:
     for feature_1, feature_2, corr_value in feature_pairs:
+        if not pd.api.types.is_numeric_dtype(df[feature_1]) or not pd.api.types.is_numeric_dtype(df[feature_2]):
+            continue
+
         plot_df = df[[feature_1, feature_2, label_col]].dropna()
 
         if plot_df.empty:
@@ -326,12 +346,14 @@ def run_full_eda(df: pd.DataFrame, label_col: str = "anomaly_label") -> None:
         print(f"Kolonna '{label_col}' netika atrasta datu kopā.")
         return
 
+    # TIKAI skaitliskie atribūti
     numeric_features = get_numeric_features(df, exclude_columns=[label_col])
 
     if not numeric_features:
         print("Nav atrasti skaitliskie atribūti analīzei.")
         return
 
+    # TIKAI nekonstanti skaitliskie atribūti korelācijai un scatter
     numeric_features_non_constant = get_non_constant_features(df, numeric_features)
 
     print("\nTiek veidoti grafiki...")
@@ -344,13 +366,17 @@ def run_full_eda(df: pd.DataFrame, label_col: str = "anomaly_label") -> None:
 
     if len(numeric_features_non_constant) >= 2:
         corr_matrix = plot_correlation_heatmap(df, numeric_features_non_constant)
-        scatter_pairs = get_correlated_feature_pairs(corr_matrix)
 
-        if scatter_pairs:
-            plot_scatterplots(df, scatter_pairs, label_col=label_col)
-            print(f"Scatter diagrammām atlasīti {len(scatter_pairs)} atribūtu pāri.")
+        if not corr_matrix.empty:
+            scatter_pairs = get_correlated_feature_pairs(corr_matrix)
+
+            if scatter_pairs:
+                plot_scatterplots(df, scatter_pairs, label_col=label_col)
+                print(f"Scatter diagrammām atlasīti {len(scatter_pairs)} atribūtu pāri.")
+            else:
+                print("Nav atrasti atribūtu pāri ar pietiekamu korelāciju scatter diagrammām.")
         else:
-            print("Nav atrasti atribūtu pāri ar pietiekamu korelāciju scatter diagrammām.")
+            print("Korelācijas matricu neizdevās izveidot.")
     else:
         print("Korelācijas matricai un scatter diagrammām nepietiek nekonstantu skaitlisko atribūtu.")
 
