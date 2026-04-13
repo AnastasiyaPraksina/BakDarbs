@@ -2,11 +2,11 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from paths import raw_data
 
 
 DATA_DIR = Path("data")
 
+CLEANED_DATA_FILE = DATA_DIR / "cleaned_data.csv"
 TRANSFORMED_DATA_FILE = DATA_DIR / "transformed_data.csv"
 LABELS_FILE = DATA_DIR / "labels.csv"
 
@@ -22,13 +22,6 @@ def load_data(file_path: str) -> pd.DataFrame:
 
 
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
-    # Drop non-informative columns
-    df = df.drop(columns=[
-        "dataset_source",
-        "microscope_model",
-        "staining_protocol"
-    ], errors="ignore")
-
     # Encode categorical features using one-hot encoding
     df = pd.get_dummies(
         df,
@@ -86,19 +79,19 @@ def scale_datasets(
     return X_train_scaled, X_test_scaled
 
 
-def split_dataset(file_path: str) -> None:
+def split_dataset(file_path: str = CLEANED_DATA_FILE) -> None:
     df = load_data(file_path)
 
-    print("Original dataset shape:")
+    print("=== Cleaned dataset shape ===")
     print(df.shape)
 
-    labels = df[["cell_id", "anomaly_label", "cell_type", "disease_category"]].copy()
+    labels = df[["anomaly_label", "cell_type", "disease_category"]].copy()
 
     transformed_data = df.drop(columns=[
         "anomaly_label",
         "cell_type",
         "disease_category"
-    ])
+    ], errors="ignore")
 
     transformed_data = preprocess_data(transformed_data)
 
@@ -114,6 +107,8 @@ def split_dataset(file_path: str) -> None:
         X_train=X_train,
         X_test=X_test,
     )
+
+    # Save datasets
     transformed_data.to_csv(TRANSFORMED_DATA_FILE, index=False, encoding="utf-8-sig")
     labels.to_csv(LABELS_FILE, index=False, encoding="utf-8-sig")
 
@@ -127,22 +122,6 @@ def split_dataset(file_path: str) -> None:
     print(f"Train data shape: {X_train.shape}")
     print(f"Test data shape: {X_test.shape}")
 
-    check_duplicates(X_train, "Train data")
-    check_duplicates(X_test, "Test data")
-
-
-def check_duplicates(df: pd.DataFrame, name: str) -> None:
-    duplicates = df.duplicated().sum()
-
-    print(f"\n=== Duplicate check for {name} ===")
-    print(f"Total rows: {len(df)}")
-    print(f"Duplicate rows: {duplicates}")
-
-    if duplicates > 0:
-        print("Warning: Dataset contains duplicates!")
-    else:
-        print("No duplicates found.")
-
 
 if __name__ == "__main__":
-    split_dataset(raw_data)
+    split_dataset()
