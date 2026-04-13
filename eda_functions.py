@@ -54,8 +54,23 @@ def show_dataset_info(df: pd.DataFrame) -> None:
     print(df.isnull().sum())
 
 
-def save_dataset_statistics(df: pd.DataFrame, output_file: str = "dataset_statistics.csv") -> None:
-    """Saglabā kopējo datu kopas statistiku CSV failā projekta saknē."""
+def check_duplicates(df: pd.DataFrame, name: str = "Dataset") -> None:
+    duplicates = df.duplicated().sum()
+
+    print(f"\n=== Duplicate check for {name} ===")
+    print(f"Total rows: {len(df)}")
+    print(f"Duplicate rows: {duplicates}")
+
+    if duplicates > 0:
+        print("Warning: Dataset contains full duplicate rows!")
+    else:
+        print("No full duplicates found.")
+
+
+def save_dataset_statistics(
+    df: pd.DataFrame,
+    output_file: str = "dataset_statistics.csv"
+) -> None:
     stats_rows = []
 
     for column in df.columns:
@@ -110,8 +125,10 @@ def save_dataset_statistics(df: pd.DataFrame, output_file: str = "dataset_statis
     print(f"\nStatistikas fails saglabāts: {output_file}")
 
 
-def get_numeric_features(df: pd.DataFrame, exclude_columns: Optional[List[str]] = None) -> List[str]:
-    """Atgriež tikai skaitliskās kolonnas."""
+def get_numeric_features(
+    df: pd.DataFrame,
+    exclude_columns: Optional[List[str]] = None
+) -> List[str]:
     if exclude_columns is None:
         exclude_columns = []
 
@@ -191,7 +208,11 @@ def plot_feature_boxplots(df: pd.DataFrame, features: List[str]) -> None:
 # 04. BOXPLOTS BY LABEL
 # =========================
 
-def plot_boxplots_by_label(df: pd.DataFrame, features: List[str], label_col: str = "anomaly_label") -> None:
+def plot_boxplots_by_label(
+    df: pd.DataFrame,
+    features: List[str],
+    label_col: str = "anomaly_label"
+) -> None:
     for feature in features:
         plot_df = df[[feature, label_col]].dropna()
 
@@ -214,7 +235,11 @@ def plot_boxplots_by_label(df: pd.DataFrame, features: List[str], label_col: str
 # 05. HISTOGRAMS BY LABEL
 # =========================
 
-def plot_histograms_by_label(df: pd.DataFrame, features: List[str], label_col: str = "anomaly_label") -> None:
+def plot_histograms_by_label(
+    df: pd.DataFrame,
+    features: List[str],
+    label_col: str = "anomaly_label"
+) -> None:
     for feature in features:
         plot_df = df[[feature, label_col]].dropna()
 
@@ -231,69 +256,6 @@ def plot_histograms_by_label(df: pd.DataFrame, features: List[str], label_col: s
         save_path = PLOT_FOLDERS["histograms_by_label"] / f"{sanitize_filename(feature)}_histogram_by_label.png"
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
-
-
-# =========================
-# 07. CORRELATION
-# =========================
-
-def plot_correlation_heatmap(df: pd.DataFrame, numeric_features: List[str]) -> pd.DataFrame:
-    """
-    Korelācijas matrica tiek veidota TIKAI no skaitliskajām kolonnām.
-    """
-    if len(numeric_features) < 2:
-        return pd.DataFrame()
-
-    numeric_df = df[numeric_features].copy()
-    corr_matrix = numeric_df.corr(numeric_only=True)
-
-    if corr_matrix.empty:
-        return pd.DataFrame()
-
-    plt.figure(figsize=(12, 10))
-    sns.heatmap(corr_matrix, annot=False, cmap="coolwarm", square=True)
-    plt.title("Atribūtu korelācijas matrica")
-    plt.tight_layout()
-
-    save_path = PLOT_FOLDERS["correlation"] / "correlation_heatmap.png"
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    plt.close()
-
-    corr_csv_path = PLOT_FOLDERS["correlation"] / "correlation_matrix.csv"
-    corr_matrix.to_csv(corr_csv_path, encoding="utf-8-sig")
-
-    return corr_matrix
-
-
-# =========================
-# SCATTER PAIR SELECTION
-# =========================
-
-def get_correlated_feature_pairs(
-    corr_matrix: pd.DataFrame,
-    threshold: float = 0.7,
-    max_pairs: int = 20
-) -> List[Tuple[str, str, float]]:
-    """
-    Atlasām pārus scatter diagrammām tikai no skaitlisko atribūtu korelācijas matricas.
-    """
-    if corr_matrix.empty:
-        return []
-
-    pairs = []
-    columns = corr_matrix.columns.tolist()
-
-    for i in range(len(columns)):
-        for j in range(i + 1, len(columns)):
-            feature_1 = columns[i]
-            feature_2 = columns[j]
-            corr_value = corr_matrix.loc[feature_1, feature_2]
-
-            if pd.notna(corr_value) and abs(corr_value) >= threshold:
-                pairs.append((feature_1, feature_2, corr_value))
-
-    pairs.sort(key=lambda x: abs(x[2]), reverse=True)
-    return pairs[:max_pairs]
 
 
 # =========================
@@ -334,26 +296,83 @@ def plot_scatterplots(
 
 
 # =========================
+# 07. CORRELATION
+# =========================
+
+def plot_correlation_heatmap(df: pd.DataFrame, numeric_features: List[str]) -> pd.DataFrame:
+    if len(numeric_features) < 2:
+        return pd.DataFrame()
+
+    numeric_df = df[numeric_features].copy()
+    corr_matrix = numeric_df.corr(numeric_only=True)
+
+    if corr_matrix.empty:
+        return pd.DataFrame()
+
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(corr_matrix, annot=False, cmap="coolwarm", square=True)
+    plt.title("Atribūtu korelācijas matrica")
+    plt.tight_layout()
+
+    save_path = PLOT_FOLDERS["correlation"] / "correlation_heatmap.png"
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    corr_csv_path = PLOT_FOLDERS["correlation"] / "correlation_matrix.csv"
+    corr_matrix.to_csv(corr_csv_path, encoding="utf-8-sig")
+
+    return corr_matrix
+
+
+# =========================
+# SCATTER PAIR SELECTION
+# =========================
+
+def get_correlated_feature_pairs(
+    corr_matrix: pd.DataFrame,
+    threshold: float = 0.7,
+    max_pairs: int = 20
+) -> List[Tuple[str, str, float]]:
+
+    if corr_matrix.empty:
+        return []
+
+    pairs = []
+    columns = corr_matrix.columns.tolist()
+
+    for i in range(len(columns)):
+        for j in range(i + 1, len(columns)):
+            feature_1 = columns[i]
+            feature_2 = columns[j]
+            corr_value = corr_matrix.loc[feature_1, feature_2]
+
+            if pd.notna(corr_value) and abs(corr_value) >= threshold:
+                pairs.append((feature_1, feature_2, corr_value))
+
+    pairs.sort(key=lambda x: abs(x[2]), reverse=True)
+    return pairs[:max_pairs]
+
+
+# =========================
 # PILNS EDA PROCESS
 # =========================
 
 def run_full_eda(df: pd.DataFrame, label_col: str = "anomaly_label") -> None:
     create_plot_folders()
     show_dataset_info(df)
+    check_duplicates(df, "Cleaned dataset")
     save_dataset_statistics(df)
 
     if label_col not in df.columns:
         print(f"Kolonna '{label_col}' netika atrasta datu kopā.")
         return
 
-    # TIKAI skaitliskie atribūti
     numeric_features = get_numeric_features(df, exclude_columns=[label_col])
 
     if not numeric_features:
         print("Nav atrasti skaitliskie atribūti analīzei.")
         return
 
-    # TIKAI nekonstanti skaitliskie atribūti korelācijai un scatter
     numeric_features_non_constant = get_non_constant_features(df, numeric_features)
 
     print("\nTiek veidoti grafiki...")
