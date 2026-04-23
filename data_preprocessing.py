@@ -18,30 +18,44 @@ TRAIN_LABELS_FILE = DATA_DIR / "train_labels.csv"
 VALIDATION_LABELS_FILE = DATA_DIR / "validation_labels.csv"
 TEST_LABELS_FILE = DATA_DIR / "test_labels.csv"
 
+RANDOM_STATE = 42
+TARGET_ANOMALY_RATE = 0.05  # 5% anomalies in the final experimental dataset
 
-def load_data(file_path: str) -> pd.DataFrame:
+
+def load_data(file_path: str | Path) -> pd.DataFrame:
     return pd.read_csv(file_path)
 
 
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Remove only the columns explicitly selected for exclusion.
+    """
     df = df.drop(columns=[
-        "patient_sex",
-        "patient_age_group"
+        "cell_diameter_um",
+        "cell_area_px",
+        "cytoplasm_ratio",
+        "chromatin_density",
+        "eccentricity",
+        "cytodiffusion_classification_confidence",
+        "cytodiffusion_anomaly_score",
+        "labeller_confidence_score",
     ], errors="ignore")
 
     return df
 
 
-def get_columns_to_scale(df: pd.DataFrame) -> list:
+def get_columns_to_scale(df: pd.DataFrame) -> list[str]:
+    """
+    Return numeric columns that are not binary 0/1.
+    Binary columns are not scaled.
+    """
     numeric_columns = df.select_dtypes(include=["number"]).columns
     columns_to_scale = []
 
     for col in numeric_columns:
         unique_values = set(df[col].dropna().unique())
-
         if unique_values.issubset({0, 1}):
             continue
-
         columns_to_scale.append(col)
 
     return columns_to_scale
@@ -52,21 +66,25 @@ def scale_datasets(
     X_validation: pd.DataFrame,
     X_test: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-
+    """
+    Fit StandardScaler only on training data and apply to validation/test.
+    Binary columns are excluded from scaling.
+    """
     columns_to_scale = get_columns_to_scale(X_train)
 
     print("\n=== Scaling info ===")
-    print(f"Columns to scale ({len(columns_to_scale)}): {columns_to_scale}")
-
-    if not columns_to_scale:
-        print("No columns need scaling.")
-        return X_train, X_validation, X_test
-
-    scaler = StandardScaler()
+    print(f"Columns to scale ({len(columns_to_scale)}):")
+    print(columns_to_scale)
 
     X_train_scaled = X_train.copy()
     X_validation_scaled = X_validation.copy()
     X_test_scaled = X_test.copy()
+
+    if not columns_to_scale:
+        print("No non-binary numeric columns need scaling.")
+        return X_train_scaled, X_validation_scaled, X_test_scaled
+
+    scaler = StandardScaler()
 
     X_train_scaled[columns_to_scale] = scaler.fit_transform(X_train[columns_to_scale])
     X_validation_scaled[columns_to_scale] = scaler.transform(X_validation[columns_to_scale])
@@ -75,59 +93,175 @@ def scale_datasets(
     return X_train_scaled, X_validation_scaled, X_test_scaled
 
 
-def split_dataset(file_path: str = CLEANED_DATA_FILE) -> None:
+def build_realistic_dataset(
+    features: pd.DataFrame,
+    labels: pd.DataFrame,
+    anomaly_rate: float,
+    random_state: int
+) -> pd.DataFrame:
+    """
+    Build the largest possible dataset with the requested anomaly rate
+    without reusing rows.
+
+    The limiting factor is usually the number of normal observations.
+    """
+    full_data = pd.concat([features, labels], axis=1)
+
+    normal_pool = full_data[full_data["anomaly_label"] == 0].copy()
+    anomaly_pool = full_data[full_data["anomaly_label"] == 1].copy()
+
+    n_normal = len(normal_pool)
+    n_anomaly = len(anomaly_pool)
+
+    print("\n=== Available class counts in original dataset ===")
+    print(f"Normal observations:  {n_normal}")
+    print(f"Anomalous observations: {n_anomaly}")
+
+    # Maximum dataset size possible under requested anomaly rate
+    max_total_by_normal = int(n_normal / (1 - anomaly_rate))
+    max_total_by_anomaly = int(n_anomaly / anomaly_rate)
+    max_total_size = min(max_total_by_normal, max_total_by_anomaly)
+
+    anomaly_count = int(round(max_total_size * anomaly_rate))
+    normal_count = max_total_size - anomaly_count
+
+    print("\n=== Realistic dataset construction ===")
+    print(f"Target anomaly rate: {anomaly_rate:.2%}")
+    print(f"Maximum possible total size: {max_total_size}")
+    print(f"Selected normal observations: {normal_count}")
+    print(f"Selected anomalous observations: {anomaly_count}")
+
+    sampled_normal = normal_pool.sample(n=normal_count, random_state=random_state)
+    sampled_anomaly = anomaly_pool.sample(n=anomaly_count, random_state=random_state)
+
+    realistic_df = pd.concat([sampled_normal, sampled_anomaly], axis=0)
+    realistic_df = realistic_df.sample(frac=1, random_state=random_state).reset_index(drop=True)
+
+    return realistic_df
+
+
+def print_split_statistics(
+    X_train: pd.DataFrame,
+    X_validation: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_train: pd.DataFrame,
+    y_validation: pd.DataFrame,
+    y_test: pd.DataFrame
+) -> None:
+    print("\n=== Split shapes ===")
+    print(f"Train:      {X_train.shape}")
+    print(f"Validation: {X_validation.shape}")
+    print(f"Test:       {X_test.shape}")
+
+    print("\n=== Anomaly proportions ===")
+    print(f"Train anomaly rate:      {y_train['anomaly_label'].mean():.4f}")
+    print(f"Validation anomaly rate: {y_validation['anomaly_label'].mean():.4f}")
+    print(f"Test anomaly rate:       {y_test['anomaly_label'].mean():.4f}")
+
+
+def split_dataset(file_path: str | Path = CLEANED_DATA_FILE) -> None:
+    """
+    Full preprocessing pipeline for UNSUPERVISED anomaly detection.
+
+    Steps:
+    1. Load cleaned data
+    2. Separate labels
+    3. Remove selected columns
+    4. Build the largest possible realistic dataset with rare anomalies
+    5. Split into 70/15/15 with stratification by anomaly_label
+    6. Scale only non-binary numeric columns using training statistics
+    7. Save all outputs
+    """
     df = load_data(file_path)
 
-    print("=== Cleaned dataset shape ===")
+    print("=== Input dataset shape ===")
     print(df.shape)
 
     labels = df[["anomaly_label", "cell_type", "disease_category"]].copy()
 
-    transformed_data = df.drop(columns=[
+    features = df.drop(columns=[
         "anomaly_label",
         "cell_type",
         "disease_category"
     ], errors="ignore")
 
-    transformed_data = preprocess_data(transformed_data)
+    features = preprocess_data(features)
 
-    # First split: train (70%) and temporary set (30%)
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        transformed_data,
-        labels,
-        test_size=0.3,
-        random_state=42,
-        stratify=labels["anomaly_label"]
+    print("\n=== Feature dataset shape after preprocessing ===")
+    print(features.shape)
+
+    print("\n=== Columns after preprocessing ===")
+    print(features.columns.tolist())
+
+    # Save full transformed dataset and labels before realistic subsampling
+    features.to_csv(TRANSFORMED_DATA_FILE, index=False, encoding="utf-8-sig")
+    labels.to_csv(LABELS_FILE, index=False, encoding="utf-8-sig")
+
+    # Build realistic rare-anomaly dataset
+    realistic_df = build_realistic_dataset(
+        features=features,
+        labels=labels,
+        anomaly_rate=TARGET_ANOMALY_RATE,
+        random_state=RANDOM_STATE
     )
 
-    # Second split: validation (15%) and test (15%)
+    print("\n=== Realistic dataset shape ===")
+    print(realistic_df.shape)
+    print(f"Realistic anomaly rate: {realistic_df['anomaly_label'].mean():.4f}")
+
+    # Split realistic dataset into train / validation / test
+    X = realistic_df.drop(columns=["anomaly_label", "cell_type", "disease_category"])
+    y = realistic_df[["anomaly_label", "cell_type", "disease_category"]].copy()
+
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        X,
+        y,
+        test_size=0.30,
+        random_state=RANDOM_STATE,
+        stratify=y["anomaly_label"]
+    )
+
     X_validation, X_test, y_validation, y_test = train_test_split(
         X_temp,
         y_temp,
-        test_size=0.5,
-        random_state=42,
+        test_size=0.50,
+        random_state=RANDOM_STATE,
         stratify=y_temp["anomaly_label"]
     )
 
     X_train, X_validation, X_test = scale_datasets(
         X_train=X_train,
         X_validation=X_validation,
-        X_test=X_test,
+        X_test=X_test
     )
 
-    # Save full transformed dataset and labels
-    transformed_data.to_csv(TRANSFORMED_DATA_FILE, index=False, encoding="utf-8-sig")
-    labels.to_csv(LABELS_FILE, index=False, encoding="utf-8-sig")
+    print_split_statistics(
+        X_train=X_train,
+        X_validation=X_validation,
+        X_test=X_test,
+        y_train=y_train,
+        y_validation=y_validation,
+        y_test=y_test
+    )
 
-    # Save split feature datasets
     X_train.to_csv(TRAIN_DATA_FILE, index=False, encoding="utf-8-sig")
     X_validation.to_csv(VALIDATION_DATA_FILE, index=False, encoding="utf-8-sig")
     X_test.to_csv(TEST_DATA_FILE, index=False, encoding="utf-8-sig")
 
-    # Save split label datasets
     y_train.to_csv(TRAIN_LABELS_FILE, index=False, encoding="utf-8-sig")
     y_validation.to_csv(VALIDATION_LABELS_FILE, index=False, encoding="utf-8-sig")
     y_test.to_csv(TEST_LABELS_FILE, index=False, encoding="utf-8-sig")
+
+    print("\n=== Files saved successfully ===")
+    print(f"Transformed full data: {TRANSFORMED_DATA_FILE}")
+    print(f"Full labels:           {LABELS_FILE}")
+    print(f"Train data:            {TRAIN_DATA_FILE}")
+    print(f"Validation data:       {VALIDATION_DATA_FILE}")
+    print(f"Test data:             {TEST_DATA_FILE}")
+    print(f"Train labels:          {TRAIN_LABELS_FILE}")
+    print(f"Validation labels:     {VALIDATION_LABELS_FILE}")
+    print(f"Test labels:           {TEST_LABELS_FILE}")
+
 
 if __name__ == "__main__":
     split_dataset()

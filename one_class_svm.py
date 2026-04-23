@@ -11,9 +11,9 @@ from sklearn.metrics import (
     accuracy_score,
     roc_auc_score,
     average_precision_score,
-    confusion_matrix
+    confusion_matrix,
+    precision_recall_curve
 )
-
 
 DATA_DIR = Path("data")
 RESULTS_DIR = Path("results")
@@ -28,7 +28,6 @@ X_train = pd.read_csv(DATA_DIR / "train_data.csv")
 X_val = pd.read_csv(DATA_DIR / "validation_data.csv")
 X_test = pd.read_csv(DATA_DIR / "test_data.csv")
 
-# load labels only for evaluation (not used in training)
 y_val = pd.read_csv(DATA_DIR / "validation_labels.csv")
 y_test = pd.read_csv(DATA_DIR / "test_labels.csv")
 
@@ -42,8 +41,8 @@ y_test = y_test["anomaly_label"].astype(int).values
 # One-Class SVM is sensitive to scaling, so using already scaled data is important
 model = OneClassSVM(
     kernel="rbf",
-    gamma="scale",
-    nu=0.1
+    gamma=0.1,
+    nu=0.2
 )
 
 model.fit(X_train)
@@ -58,27 +57,23 @@ val_scores = -model.decision_function(X_val)
 
 
 # =========================
-# THRESHOLD SEARCH
+# THRESHOLD SEARCH VIA PR CURVE
 # =========================
-# use all unique score values as candidate thresholds
-thresholds = np.unique(val_scores)
+precision_curve, recall_curve, thresholds = precision_recall_curve(y_val, val_scores)
 
-best_f1 = -1.0
-best_threshold = None
-best_preds = None
+# precision_recall_curve returns one more precision/recall value than thresholds
+precision_for_f1 = precision_curve[:-1]
+recall_for_f1 = recall_curve[:-1]
 
-for threshold in thresholds:
-    # convert scores into binary anomaly labels
-    val_preds = (val_scores >= threshold).astype(int)
+f1_scores = 2 * (precision_for_f1 * recall_for_f1) / (
+    precision_for_f1 + recall_for_f1 + 1e-8
+)
 
-    # compute F1-score (main metric for threshold selection)
-    current_f1 = f1_score(y_val, val_preds, zero_division=0)
+best_idx = np.argmax(f1_scores)
+best_threshold = thresholds[best_idx]
+best_f1 = f1_scores[best_idx]
 
-    # keep best threshold based on F1-score
-    if current_f1 > best_f1:
-        best_f1 = current_f1
-        best_threshold = threshold
-        best_preds = val_preds
+best_preds = (val_scores >= best_threshold).astype(int)
 
 
 # =========================
@@ -111,17 +106,27 @@ val_results.to_csv(RESULTS_DIR / "ocsvm_validation_scores.csv", index=False)
 
 
 # =========================
-# VALIDATION PLOT
+# VALIDATION PLOTS
 # =========================
 # visualize score distribution and selected threshold
 plt.figure(figsize=(8, 5))
 plt.hist(val_scores, bins=50)
 plt.axvline(best_threshold, linestyle="--")
-plt.title("Validation anomaly score distribution")
+plt.title("One-Class SVM validation anomaly score distribution")
 plt.xlabel("Anomaly score")
 plt.ylabel("Frequency")
 plt.tight_layout()
 plt.savefig(RESULTS_DIR / "ocsvm_validation_scores_hist.png", dpi=300)
+plt.close()
+
+# PR curve
+plt.figure(figsize=(6, 5))
+plt.plot(recall_curve, precision_curve)
+plt.title("One-Class SVM validation PR curve")
+plt.xlabel("Recall")
+plt.ylabel("Precision")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "ocsvm_validation_pr_curve.png", dpi=300)
 plt.close()
 
 
@@ -166,11 +171,26 @@ test_results.to_csv(RESULTS_DIR / "ocsvm_test_scores_predictions.csv", index=Fal
 
 
 # =========================
+# TEST PLOT
+# =========================
+plt.figure(figsize=(8, 5))
+plt.hist(test_scores, bins=50)
+plt.axvline(best_threshold, linestyle="--")
+plt.title("One-Class SVM test anomaly score distribution")
+plt.xlabel("Anomaly score")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "ocsvm_test_scores_hist.png", dpi=300)
+plt.close()
+
+
+# =========================
 # SAVE METRICS
 # =========================
 # store all metrics for further comparison
 metrics_df = pd.DataFrame([{
     "model": "OneClassSVM",
+    "threshold_strategy": "PR_curve_max_F1",
     "selected_threshold": best_threshold,
 
     "val_precision": val_precision,
