@@ -11,9 +11,9 @@ from sklearn.metrics import (
     accuracy_score,
     roc_auc_score,
     average_precision_score,
-    confusion_matrix
+    confusion_matrix,
+    precision_recall_curve
 )
-
 
 DATA_DIR = Path("data")
 RESULTS_DIR = Path("results")
@@ -23,12 +23,10 @@ RESULTS_DIR.mkdir(exist_ok=True)
 # =========================
 # LOAD DATA
 # =========================
-# load preprocessed datasets (scaling already done earlier if needed)
 X_train = pd.read_csv(DATA_DIR / "train_data.csv")
 X_val = pd.read_csv(DATA_DIR / "validation_data.csv")
 X_test = pd.read_csv(DATA_DIR / "test_data.csv")
 
-# load labels only for evaluation (not used in training)
 y_val = pd.read_csv(DATA_DIR / "validation_labels.csv")
 y_test = pd.read_csv(DATA_DIR / "test_labels.csv")
 
@@ -41,8 +39,8 @@ y_test = y_test["anomaly_label"].astype(int).values
 # =========================
 # novelty=True is required to evaluate unseen validation/test data
 model = LocalOutlierFactor(
-    n_neighbors=30,
-    contamination="auto",
+    n_neighbors=100,
+    contamination=0.2,
     novelty=True,
     n_jobs=-1
 )
@@ -59,42 +57,34 @@ val_scores = -model.decision_function(X_val)
 
 
 # =========================
-# THRESHOLD SEARCH
+# THRESHOLD SEARCH VIA PR CURVE
 # =========================
-# use all unique score values as candidate thresholds
-thresholds = np.unique(val_scores)
+precision_curve, recall_curve, thresholds = precision_recall_curve(y_val, val_scores)
 
-best_f1 = -1.0
-best_threshold = None
-best_preds = None
+precision_for_f1 = precision_curve[:-1]
+recall_for_f1 = recall_curve[:-1]
 
-for threshold in thresholds:
-    # convert scores into binary anomaly labels
-    val_preds = (val_scores >= threshold).astype(int)
+f1_scores = 2 * (precision_for_f1 * recall_for_f1) / (
+    precision_for_f1 + recall_for_f1 + 1e-8
+)
 
-    # compute F1-score (main metric for threshold selection)
-    current_f1 = f1_score(y_val, val_preds, zero_division=0)
+best_idx = np.argmax(f1_scores)
+best_threshold = thresholds[best_idx]
+best_f1 = f1_scores[best_idx]
 
-    # keep best threshold based on F1-score
-    if current_f1 > best_f1:
-        best_f1 = current_f1
-        best_threshold = threshold
-        best_preds = val_preds
+best_preds = (val_scores >= best_threshold).astype(int)
 
 
 # =========================
 # VALIDATION METRICS
 # =========================
-# threshold-dependent metrics
 val_precision = precision_score(y_val, best_preds, zero_division=0)
 val_recall = recall_score(y_val, best_preds, zero_division=0)
 val_accuracy = accuracy_score(y_val, best_preds)
 
-# threshold-independent metrics
 val_roc_auc = roc_auc_score(y_val, val_scores)
 val_pr_auc = average_precision_score(y_val, val_scores)
 
-# confusion matrix and specificity
 val_tn, val_fp, val_fn, val_tp = confusion_matrix(y_val, best_preds).ravel()
 val_specificity = val_tn / (val_tn + val_fp) if (val_tn + val_fp) > 0 else 0.0
 
@@ -102,7 +92,6 @@ val_specificity = val_tn / (val_tn + val_fp) if (val_tn + val_fp) > 0 else 0.0
 # =========================
 # SAVE VALIDATION RESULTS
 # =========================
-# save validation scores and predictions for analysis
 val_results = X_val.copy()
 val_results["anomaly_score"] = val_scores
 val_results["predicted_anomaly"] = best_preds
@@ -112,44 +101,46 @@ val_results.to_csv(RESULTS_DIR / "lof_validation_scores.csv", index=False)
 
 
 # =========================
-# VALIDATION PLOT
+# VALIDATION PLOTS
 # =========================
-# visualize score distribution and selected threshold
 plt.figure(figsize=(8, 5))
 plt.hist(val_scores, bins=50)
 plt.axvline(best_threshold, linestyle="--")
-plt.title("Validation anomaly score distribution")
+plt.title("LOF validation score distribution")
 plt.xlabel("Anomaly score")
 plt.ylabel("Frequency")
 plt.tight_layout()
 plt.savefig(RESULTS_DIR / "lof_validation_scores_hist.png", dpi=300)
 plt.close()
 
+plt.figure(figsize=(6, 5))
+plt.plot(recall_curve, precision_curve)
+plt.title("LOF validation PR curve")
+plt.xlabel("Recall")
+plt.ylabel("Precision")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "lof_validation_pr_curve.png", dpi=300)
+plt.close()
+
 
 # =========================
 # TEST
 # =========================
-# compute anomaly scores for test set
 test_scores = -model.decision_function(X_test)
-
-# apply threshold selected on validation set
 test_preds = (test_scores >= best_threshold).astype(int)
 
 
 # =========================
 # TEST METRICS
 # =========================
-# threshold-dependent metrics
 test_precision = precision_score(y_test, test_preds, zero_division=0)
 test_recall = recall_score(y_test, test_preds, zero_division=0)
 test_f1 = f1_score(y_test, test_preds, zero_division=0)
 test_accuracy = accuracy_score(y_test, test_preds)
 
-# threshold-independent metrics
 test_roc_auc = roc_auc_score(y_test, test_scores)
 test_pr_auc = average_precision_score(y_test, test_scores)
 
-# confusion matrix and specificity
 test_tn, test_fp, test_fn, test_tp = confusion_matrix(y_test, test_preds).ravel()
 test_specificity = test_tn / (test_tn + test_fp) if (test_tn + test_fp) > 0 else 0.0
 
@@ -157,7 +148,6 @@ test_specificity = test_tn / (test_tn + test_fp) if (test_tn + test_fp) > 0 else
 # =========================
 # SAVE TEST RESULTS
 # =========================
-# save test predictions and scores
 test_results = X_test.copy()
 test_results["anomaly_score"] = test_scores
 test_results["predicted_anomaly"] = test_preds
@@ -165,13 +155,23 @@ test_results["anomaly_label"] = y_test
 
 test_results.to_csv(RESULTS_DIR / "lof_test_scores_predictions.csv", index=False)
 
+plt.figure(figsize=(8, 5))
+plt.hist(test_scores, bins=50)
+plt.axvline(best_threshold, linestyle="--")
+plt.title("LOF test score distribution")
+plt.xlabel("Anomaly score")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "lof_test_scores_hist.png", dpi=300)
+plt.close()
+
 
 # =========================
 # SAVE METRICS
 # =========================
-# store all metrics for further comparison
 metrics_df = pd.DataFrame([{
     "model": "LocalOutlierFactor",
+    "threshold_strategy": "PR_curve_max_F1",
     "selected_threshold": best_threshold,
 
     "val_precision": val_precision,
@@ -205,6 +205,8 @@ if metrics_file.exists():
     metrics_df.to_csv(metrics_file, mode="a", header=False, index=False)
 else:
     metrics_df.to_csv(metrics_file, index=False)
+
+
 # =========================
 # FINISH
 # =========================

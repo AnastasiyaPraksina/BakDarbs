@@ -11,7 +11,8 @@ from sklearn.metrics import (
     accuracy_score,
     roc_auc_score,
     average_precision_score,
-    confusion_matrix
+    confusion_matrix,
+    precision_recall_curve
 )
 from tensorflow.keras import Model
 from tensorflow.keras import layers
@@ -32,6 +33,7 @@ tf.random.set_seed(42)
 # =========================
 # LOAD DATA
 # =========================
+# load preprocessed datasets (scaling already done earlier if needed)
 X_train = pd.read_csv(DATA_DIR / "train_data.csv")
 X_val = pd.read_csv(DATA_DIR / "validation_data.csv")
 X_test = pd.read_csv(DATA_DIR / "test_data.csv")
@@ -42,7 +44,6 @@ y_test = pd.read_csv(DATA_DIR / "test_labels.csv")
 y_val = y_val["anomaly_label"].astype(int).values
 y_test = y_test["anomaly_label"].astype(int).values
 
-# tensorflow works most cleanly with float32
 X_train_np = X_train.astype("float32").values
 X_val_np = X_val.astype("float32").values
 X_test_np = X_test.astype("float32").values
@@ -61,11 +62,11 @@ class Autoencoder(Model):
             layers.Input(shape=(input_dim,)),
             layers.Dense(64, activation="relu"),
             layers.Dense(32, activation="relu"),
-            layers.Dense(8, activation="relu")
+            layers.Dense(4, activation="relu")
         ])
 
         self.decoder = tf.keras.Sequential([
-            layers.Input(shape=(8,)),
+            layers.Input(shape=(4,)),
             layers.Dense(32, activation="relu"),
             layers.Dense(64, activation="relu"),
             layers.Dense(input_dim, activation="linear")
@@ -98,7 +99,7 @@ history = model.fit(
     X_train_np,
     X_train_np,
     validation_data=(X_val_np, X_val_np),
-    epochs=100,
+    epochs=128,
     batch_size=32,
     shuffle=True,
     callbacks=[early_stopping],
@@ -115,22 +116,23 @@ val_scores = np.mean(np.square(X_val_np - val_reconstructions), axis=1)
 
 
 # =========================
-# THRESHOLD SEARCH
+# THRESHOLD SEARCH VIA PR CURVE
 # =========================
-thresholds = np.unique(val_scores)
+precision_curve, recall_curve, thresholds = precision_recall_curve(y_val, val_scores)
 
-best_f1 = -1.0
-best_threshold = None
-best_preds = None
+# precision_recall_curve returns one more precision/recall value than thresholds
+precision_for_f1 = precision_curve[:-1]
+recall_for_f1 = recall_curve[:-1]
 
-for threshold in thresholds:
-    val_preds = (val_scores >= threshold).astype(int)
-    current_f1 = f1_score(y_val, val_preds, zero_division=0)
+f1_scores = 2 * (precision_for_f1 * recall_for_f1) / (
+    precision_for_f1 + recall_for_f1 + 1e-8
+)
 
-    if current_f1 > best_f1:
-        best_f1 = current_f1
-        best_threshold = threshold
-        best_preds = val_preds
+best_idx = np.argmax(f1_scores)
+best_threshold = thresholds[best_idx]
+best_f1 = f1_scores[best_idx]
+
+best_preds = (val_scores >= best_threshold).astype(int)
 
 
 # =========================
@@ -159,7 +161,7 @@ val_results.to_csv(RESULTS_DIR / "ae_validation_scores.csv", index=False)
 
 
 # =========================
-# VALIDATION PLOT
+# VALIDATION PLOTS
 # =========================
 plt.figure(figsize=(8, 5))
 plt.hist(val_scores, bins=50)
@@ -169,6 +171,15 @@ plt.xlabel("Reconstruction error")
 plt.ylabel("Frequency")
 plt.tight_layout()
 plt.savefig(RESULTS_DIR / "ae_validation_scores_hist.png", dpi=300)
+plt.close()
+
+plt.figure(figsize=(6, 5))
+plt.plot(recall_curve, precision_curve)
+plt.title("Autoencoder validation PR curve")
+plt.xlabel("Recall")
+plt.ylabel("Precision")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "ae_validation_pr_curve.png", dpi=300)
 plt.close()
 
 
@@ -223,10 +234,25 @@ test_results.to_csv(RESULTS_DIR / "ae_test_scores_predictions.csv", index=False)
 
 
 # =========================
+# TEST PLOT
+# =========================
+plt.figure(figsize=(8, 5))
+plt.hist(test_scores, bins=50)
+plt.axvline(best_threshold, linestyle="--")
+plt.title("Test reconstruction error distribution")
+plt.xlabel("Reconstruction error")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "ae_test_scores_hist.png", dpi=300)
+plt.close()
+
+
+# =========================
 # SAVE METRICS
 # =========================
 metrics_df = pd.DataFrame([{
     "model": "Autoencoder",
+    "threshold_strategy": "PR_curve_max_F1",
     "selected_threshold": best_threshold,
 
     "val_precision": val_precision,

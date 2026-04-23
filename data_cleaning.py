@@ -12,25 +12,44 @@ def load_data(file_path: str) -> pd.DataFrame:
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    # Normalize column names (remove spaces/BOM issues)
     df.columns = (
         df.columns
         .str.strip()
         .str.replace("\ufeff", "", regex=False)
     )
 
-    # Drop non-informative and leakage-prone columns
     df = df.drop(columns=[
-        "dataset_source",
-        "microscope_model",
-        "staining_protocol",
-        "magnification_x",
-        "image_resolution_px",
         "cell_id",
         "cytodiffusion_classification_confidence",
         "cytodiffusion_anomaly_score",
         "labeller_confidence_score"
     ], errors="ignore")
+
+    # Binary encoding for patient_sex
+    if "patient_sex" in df.columns:
+        df["patient_sex"] = df["patient_sex"].astype("category").cat.codes
+
+    # One-hot encoding for other categorical columns
+    categorical_cols = [
+        "patient_age_group",
+        "dataset_source",
+        "staining_protocol",
+        "microscope_model"
+    ]
+
+    existing_categorical_cols = [col for col in categorical_cols if col in df.columns]
+
+    if len(existing_categorical_cols) > 0:
+        df = pd.get_dummies(
+            df,
+            columns=existing_categorical_cols,
+            drop_first=True
+        )
+
+    # Convert bool to int
+    bool_columns = df.select_dtypes(include=["bool"]).columns
+    if len(bool_columns) > 0:
+        df[bool_columns] = df[bool_columns].astype(int)
 
     return df
 
@@ -44,7 +63,6 @@ def run_data_cleaning(file_path: str) -> None:
     df = load_data(file_path)
 
     original_shape = df.shape
-
     cleaned_df = clean_data(df)
     cleaned_shape = cleaned_df.shape
 
