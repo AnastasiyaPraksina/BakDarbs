@@ -90,7 +90,7 @@ class VAE(Model):
         return reconstructed
 
 
-model = VAE(input_dim=input_dim, latent_dim=8)
+model = VAE(input_dim=input_dim, latent_dim=4)
 
 model.compile(
     optimizer="adam",

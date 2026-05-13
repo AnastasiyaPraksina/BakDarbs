@@ -138,7 +138,7 @@ class Autoencoder(Model):
 # VAE MODEL
 # =========================
 class VAE(Model):
-    def __init__(self, input_dim, latent_dim=8):
+    def __init__(self, input_dim, latent_dim=4):
         super().__init__()
 
         self.input_dim = input_dim
@@ -236,7 +236,7 @@ all_metrics.append(calculate_metrics(model_name, test_scores, threshold))
 model_name = "Variational Autoencoder"
 threshold = get_threshold(model_name)
 
-vae_model = VAE(input_dim=input_dim, latent_dim=8)
+vae_model = VAE(input_dim=input_dim, latent_dim=4)
 vae_model(tf.zeros((1, input_dim)))
 vae_model.load_weights(MODELS_DIR / "vae.weights.h5")
 
