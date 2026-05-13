@@ -8,11 +8,11 @@ PLOTS_DIR = RESULTS_DIR / "final_visualizations"
 PLOTS_DIR.mkdir(exist_ok=True)
 
 MODELS = {
-    "if": "Isolation Forest",
-    "ocsvm": "One-Class SVM",
-    "lof": "Local Outlier Factor",
-    "ae": "Autoencoder",
-    "vae": "Variational Autoencoder"
+    "isolationforest": "Isolation Forest",
+    "oneclasssvm": "One-Class SVM",
+    "localoutlierfactor": "Local Outlier Factor",
+    "autoencoder": "Autoencoder",
+    "variational_autoencoder": "Variational Autoencoder"
 }
 
 MODEL_COLORS = {
@@ -131,16 +131,14 @@ def normalize_model_name(name: str) -> str:
 
 
 def plot_metrics_comparison():
-    metrics_file = RESULTS_DIR / "all_models_metrics.csv"
+    metrics_file = RESULTS_DIR / "test_metrics.csv"
     if not metrics_file.exists():
-        print("[WARN] all_models_metrics.csv not found")
+        print("[WARN] test_metrics.csv not found")
         return
 
     df = pd.read_csv(metrics_file)
     df["model"] = df["model"].apply(normalize_model_name)
 
-    # если в csv одна и та же модель записана несколько раз,
-    # оставим последнее значение
     df = df.drop_duplicates(subset="model", keep="last")
 
     colors = [MODEL_COLORS.get(model, "gray") for model in df["model"]]
