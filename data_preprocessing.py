@@ -2,21 +2,17 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-
-
-DATA_DIR = Path("data")
-
-CLEANED_DATA_FILE = DATA_DIR / "cleaned_data.csv"
-TRANSFORMED_DATA_FILE = DATA_DIR / "transformed_data.csv"
-LABELS_FILE = DATA_DIR / "labels.csv"
-
-TRAIN_DATA_FILE = DATA_DIR / "train_data.csv"
-VALIDATION_DATA_FILE = DATA_DIR / "validation_data.csv"
-TEST_DATA_FILE = DATA_DIR / "test_data.csv"
-
-TRAIN_LABELS_FILE = DATA_DIR / "train_labels.csv"
-VALIDATION_LABELS_FILE = DATA_DIR / "validation_labels.csv"
-TEST_LABELS_FILE = DATA_DIR / "test_labels.csv"
+from paths import (
+    CLEANED_DATA,
+    TRANSFORMED_DATA,
+    LABELS,
+    TRAIN_DATA,
+    VALIDATION_DATA,
+    TEST_DATA,
+    TRAIN_LABELS,
+    VALIDATION_LABELS,
+    TEST_LABELS
+)
 
 RANDOM_STATE = 42
 TARGET_ANOMALY_RATE = 0.05  # 5% anomalies in the final experimental dataset
@@ -27,9 +23,6 @@ def load_data(file_path: str | Path) -> pd.DataFrame:
 
 
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Remove only the columns explicitly selected for exclusion.
-    """
     df = df.drop(columns=[
         "cell_diameter_um",
         "cell_area_px",
@@ -45,10 +38,6 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_columns_to_scale(df: pd.DataFrame) -> list[str]:
-    """
-    Return numeric columns that are not binary 0/1.
-    Binary columns are not scaled.
-    """
     numeric_columns = df.select_dtypes(include=["number"]).columns
     columns_to_scale = []
 
@@ -66,10 +55,6 @@ def scale_datasets(
     X_validation: pd.DataFrame,
     X_test: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Fit StandardScaler only on training data and apply to validation/test.
-    Binary columns are excluded from scaling.
-    """
     columns_to_scale = get_columns_to_scale(X_train)
 
     print("\n=== Scaling info ===")
@@ -99,12 +84,6 @@ def build_realistic_dataset(
     anomaly_rate: float,
     random_state: int
 ) -> pd.DataFrame:
-    """
-    Build the largest possible dataset with the requested anomaly rate
-    without reusing rows.
-
-    The limiting factor is usually the number of normal observations.
-    """
     full_data = pd.concat([features, labels], axis=1)
 
     normal_pool = full_data[full_data["anomaly_label"] == 0].copy()
@@ -159,19 +138,8 @@ def print_split_statistics(
     print(f"Test anomaly rate:       {y_test['anomaly_label'].mean():.4f}")
 
 
-def split_dataset(file_path: str | Path = CLEANED_DATA_FILE) -> None:
-    """
-    Full preprocessing pipeline for UNSUPERVISED anomaly detection.
-
-    Steps:
-    1. Load cleaned data
-    2. Separate labels
-    3. Remove selected columns
-    4. Build the largest possible realistic dataset with rare anomalies
-    5. Split into 70/15/15 with stratification by anomaly_label
-    6. Scale only non-binary numeric columns using training statistics
-    7. Save all outputs
-    """
+def split_dataset(file_path: str | Path = CLEANED_DATA) -> None:
+  
     df = load_data(file_path)
 
     print("=== Input dataset shape ===")
@@ -194,8 +162,8 @@ def split_dataset(file_path: str | Path = CLEANED_DATA_FILE) -> None:
     print(features.columns.tolist())
 
     # Save full transformed dataset and labels before realistic subsampling
-    features.to_csv(TRANSFORMED_DATA_FILE, index=False, encoding="utf-8-sig")
-    labels.to_csv(LABELS_FILE, index=False, encoding="utf-8-sig")
+    features.to_csv(TRANSFORMED_DATA, index=False, encoding="utf-8-sig")
+    labels.to_csv(LABELS, index=False, encoding="utf-8-sig")
 
     # Build realistic rare-anomaly dataset
     realistic_df = build_realistic_dataset(
@@ -208,8 +176,6 @@ def split_dataset(file_path: str | Path = CLEANED_DATA_FILE) -> None:
     print("\n=== Realistic dataset shape ===")
     print(realistic_df.shape)
     print(f"Realistic anomaly rate: {realistic_df['anomaly_label'].mean():.4f}")
-
-    # Split realistic dataset into train / validation / test
     X = realistic_df.drop(columns=["anomaly_label", "cell_type", "disease_category"])
     y = realistic_df[["anomaly_label", "cell_type", "disease_category"]].copy()
 
@@ -244,24 +210,23 @@ def split_dataset(file_path: str | Path = CLEANED_DATA_FILE) -> None:
         y_test=y_test
     )
 
-    X_train.to_csv(TRAIN_DATA_FILE, index=False, encoding="utf-8-sig")
-    X_validation.to_csv(VALIDATION_DATA_FILE, index=False, encoding="utf-8-sig")
-    X_test.to_csv(TEST_DATA_FILE, index=False, encoding="utf-8-sig")
+    X_train.to_csv(TRAIN_DATA, index=False, encoding="utf-8-sig")
+    X_validation.to_csv(VALIDATION_DATA, index=False, encoding="utf-8-sig")
+    X_test.to_csv(TEST_DATA, index=False, encoding="utf-8-sig")
 
-    y_train.to_csv(TRAIN_LABELS_FILE, index=False, encoding="utf-8-sig")
-    y_validation.to_csv(VALIDATION_LABELS_FILE, index=False, encoding="utf-8-sig")
-    y_test.to_csv(TEST_LABELS_FILE, index=False, encoding="utf-8-sig")
+    y_train.to_csv(TRAIN_LABELS, index=False, encoding="utf-8-sig")
+    y_validation.to_csv(VALIDATION_LABELS, index=False, encoding="utf-8-sig")
+    y_test.to_csv(TEST_LABELS, index=False, encoding="utf-8-sig")
 
     print("\n=== Files saved successfully ===")
-    print(f"Transformed full data: {TRANSFORMED_DATA_FILE}")
-    print(f"Full labels:           {LABELS_FILE}")
-    print(f"Train data:            {TRAIN_DATA_FILE}")
-    print(f"Validation data:       {VALIDATION_DATA_FILE}")
-    print(f"Test data:             {TEST_DATA_FILE}")
-    print(f"Train labels:          {TRAIN_LABELS_FILE}")
-    print(f"Validation labels:     {VALIDATION_LABELS_FILE}")
-    print(f"Test labels:           {TEST_LABELS_FILE}")
-
+    print(f"Transformed full data: {TRANSFORMED_DATA}")
+    print(f"Full labels:           {LABELS}")
+    print(f"Train data:            {TRAIN_DATA}")
+    print(f"Validation data:       {VALIDATION_DATA}")
+    print(f"Test data:             {TEST_DATA}")
+    print(f"Train labels:          {TRAIN_LABELS}")
+    print(f"Validation labels:     {VALIDATION_LABELS}")
+    print(f"Test labels:           {TEST_LABELS}")
 
 if __name__ == "__main__":
     split_dataset()

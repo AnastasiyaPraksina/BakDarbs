@@ -1,19 +1,19 @@
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
-from paths import raw_data
-
+from paths import (
+    CLEANED_DATA,
+    PLOTS_EDA_DIR
+)
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-
 from sklearn.feature_selection import mutual_info_classif
-
 
 sns.set_theme(style="whitegrid")
 
-PLOTS_DIR = Path("plots")
+PLOTS_DIR = PLOTS_EDA_DIR
 
 PLOT_FOLDERS = {
     "label_distribution": PLOTS_DIR / "label_distribution",
@@ -105,12 +105,6 @@ def get_non_constant_features(df: pd.DataFrame, features: List[str]) -> List[str
 
 
 def compute_pearson_kurtosis(series: pd.Series) -> float:
-    """
-    Pearson kurtosis:
-    K = mean(z^4), where z = (x - mean) / std
-
-    For normal distribution Pearson kurtosis is close to 3.
-    """
     clean = pd.to_numeric(series, errors="coerce").dropna()
 
     if clean.empty or clean.nunique() <= 1:
@@ -128,12 +122,6 @@ def analyze_numeric_features_kurtosis(
     df: pd.DataFrame,
     numeric_features: List[str]
 ) -> Dict[str, Dict[str, Any]]:
-    """
-    For numeric features:
-    - Pearson kurtosis
-    - excess kurtosis
-    - interpretation
-    """
     results = {}
 
     for feature in numeric_features:
@@ -567,20 +555,6 @@ def build_numeric_feature_selection(
     correlation_threshold: float = 0.7,
     max_group_size: int = 3
 ) -> pd.DataFrame:
-    """
-    Strict group-based numeric feature selection with limited group size.
-
-    Grouping rule:
-    A feature can be added to a correlation group only if:
-    1) abs(correlation) >= correlation_threshold with ALL features already in the group
-    2) current group size is still below max_group_size
-
-    Within each group:
-    - keep the feature with the highest kurtosis
-    - drop the rest
-
-    Features outside any multi-feature group are kept.
-    """
     rows = []
 
     if not numeric_features:
@@ -628,7 +602,6 @@ def build_numeric_feature_selection(
 
     strong_pairs.sort(key=lambda x: x[2], reverse=True)
 
-    # Step 2. Build strict groups with max size limit
     groups: List[List[str]] = []
 
     for f1, f2, _ in strong_pairs:
@@ -636,17 +609,12 @@ def build_numeric_feature_selection(
 
         for group in groups:
             group_set = set(group)
-
-            # do not expand group beyond max size
             if len(group) >= max_group_size:
                 continue
 
-            # case: both already in group
             if f1 in group_set and f2 in group_set:
                 placed = True
                 break
-
-            # case: f1 in group, try add f2
             if f1 in group_set and f2 not in group_set:
                 can_add = True
                 for member in group:
@@ -657,8 +625,6 @@ def build_numeric_feature_selection(
                     group.append(f2)
                 placed = True
                 break
-
-            # case: f2 in group, try add f1
             if f2 in group_set and f1 not in group_set:
                 can_add = True
                 for member in group:
@@ -669,8 +635,6 @@ def build_numeric_feature_selection(
                     group.append(f1)
                 placed = True
                 break
-
-        # create new group only if pair was not placed
         if not placed:
             groups.append([f1, f2])
 
@@ -699,7 +663,6 @@ def build_numeric_feature_selection(
 
     grouped_features = set(f for group in groups for f in group)
 
-    # Step 4. Select survivor from each group
     feature_to_group_id = {}
     group_survivor = {}
 
@@ -896,9 +859,6 @@ def run_full_eda(df: pd.DataFrame, label_col: str = "anomaly_label") -> None:
     if binary_features:
         plot_binary_countplots(df, binary_features, label_col=label_col)
 
-    print("\nEDA pabeigts. Visi grafiki saglabāti mapē 'plots/'.")
-
-
 if __name__ == "__main__":
-    df = load_data(raw_data)
+    df = load_data(CLEANED_DATA)
     run_full_eda(df)

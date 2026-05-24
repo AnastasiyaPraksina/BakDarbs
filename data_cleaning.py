@@ -1,11 +1,9 @@
 from pathlib import Path
 import pandas as pd
-from paths import raw_data
-
-
-DATA_DIR = Path("data")
-CLEANED_DATA_FILE = DATA_DIR / "cleaned_data.csv"
-
+from paths import (
+    RAW_DATA,
+    CLEANED_DATA
+)
 
 def load_data(file_path: str) -> pd.DataFrame:
     return pd.read_csv(file_path)
@@ -25,11 +23,8 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         "labeller_confidence_score"
     ], errors="ignore")
 
-    # Binary encoding for patient_sex
     if "patient_sex" in df.columns:
         df["patient_sex"] = df["patient_sex"].astype("category").cat.codes
-
-    # One-hot encoding for other categorical columns
     categorical_cols = [
         "patient_age_group",
         "dataset_source",
@@ -53,11 +48,9 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
-def save_cleaned_data(df: pd.DataFrame, output_file: Path = CLEANED_DATA_FILE) -> None:
+def save_cleaned_data(df: pd.DataFrame, output_file=CLEANED_DATA) -> None:
     output_file.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_file, index=False, encoding="utf-8-sig")
-
 
 def run_data_cleaning(file_path: str) -> None:
     df = load_data(file_path)
@@ -67,11 +60,3 @@ def run_data_cleaning(file_path: str) -> None:
     cleaned_shape = cleaned_df.shape
 
     save_cleaned_data(cleaned_df)
-
-    print("=== Data cleaning summary ===")
-    print(f"Original: rows={original_shape[0]}, columns={original_shape[1]}")
-    print(f"Cleaned:  rows={cleaned_shape[0]}, columns={cleaned_shape[1]}")
-
-
-if __name__ == "__main__":
-    run_data_cleaning(raw_data)
