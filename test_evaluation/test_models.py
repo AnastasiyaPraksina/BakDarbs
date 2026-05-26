@@ -19,6 +19,10 @@ from sklearn.metrics import (
 )
 from tensorflow.keras import Model, layers
 
+# This script evaluates anomaly detection models on the test dataset.
+# The saved thresholds from the validation stage are loaded first, and then each model predicts anomaly scores for the test data.
+# After prediction, the script calculates evaluation metrics such as precision, recall, F1-score and PR AUC to compare model performance on unseen data.
+# Histograms of anomaly scores are also generated to visualize score distributions and threshold positions.
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -155,7 +159,6 @@ def reconstruct_vae(model, X):
 all_metrics = []
 
 
-# Isolation Forest
 model_name = "IsolationForest"
 threshold = get_threshold(model_name)
 
@@ -169,7 +172,6 @@ execution_time = end_time - start_time
 
 all_metrics.append(calculate_metrics(model_name, test_scores, threshold, execution_time))
 
-# LOF
 model_name = "LocalOutlierFactor"
 threshold = get_threshold(model_name)
 
@@ -183,7 +185,6 @@ execution_time = end_time - start_time
 
 all_metrics.append(calculate_metrics(model_name, test_scores, threshold, execution_time))
 
-# One-Class SVM
 model_name = "OneClassSVM"
 threshold = get_threshold(model_name)
 
@@ -197,7 +198,6 @@ execution_time = end_time - start_time
 
 all_metrics.append(calculate_metrics(model_name, test_scores, threshold, execution_time))
 
-# Autoencoder
 model_name = "Autoencoder"
 threshold = get_threshold(model_name)
 
